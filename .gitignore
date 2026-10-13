@@ -1,0 +1,19 @@
+node_modules/
+dist/
+web/dist/
+coverage/
+
+# Local database and data files
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Local config and secrets (API keys live here in later phases)
+.env
+.env.*
+!.env.example
+config.json
+
+.DS_Store
+*.log
