@@ -79,6 +79,19 @@ export class ModRepository {
     };
   }
 
+  /** Summaries for a set of mods, in the given order (unknown names are skipped). */
+  summaries(names: string[]): ModSummary[] {
+    const get = this.db.prepare(
+      `SELECT m.*, m.full_synced_at IS NOT NULL AS has_details,
+         (SELECT group_concat(t.tag, ',') FROM mod_tags t WHERE t.mod_name = m.name) AS tags
+       FROM mods m WHERE m.name = ?`,
+    );
+    return names
+      .map((n) => get.get(n) as ModRow | undefined)
+      .filter((r): r is ModRow => !!r)
+      .map((r) => this.toSummary(r));
+  }
+
   getMod(name: string): ModDetail | null {
     const row = this.db
       .prepare(

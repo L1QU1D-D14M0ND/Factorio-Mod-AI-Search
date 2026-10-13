@@ -1,5 +1,6 @@
 // API response types shared by the server and the web UI.
 import type { DependencyKind } from './constants.js';
+import type { ModFilterInput } from './filters.js';
 
 export interface ModSummary {
   name: string;
@@ -122,4 +123,39 @@ export interface ListItem {
 export interface ListDetail extends ModList {
   items: ListItem[];
   warnings: string[];
+}
+
+export interface SectionSettings {
+  provider: string;
+  baseUrl: string | null;
+  model: string | null;
+  /** Whether an API key is saved. The key itself is never sent to the browser. */
+  apiKeySet: boolean;
+  /** Fields fixed by environment variables. */
+  locked: ('provider' | 'baseUrl' | 'model' | 'apiKey')[];
+}
+
+export interface SettingsResponse {
+  llm: SectionSettings;
+  embeddings: SectionSettings;
+  status: {
+    llm: { ready: boolean; message: string };
+    theme: ThemeStatus;
+  };
+  /** Default base URL / model per provider, used as placeholders. */
+  defaults: Record<
+    'llm' | 'embeddings',
+    Record<string, { baseUrl: string | null; model: string | null }>
+  >;
+}
+
+export interface AskResponse {
+  /** The filter to apply; the UI runs the search with it. */
+  filter: ModFilterInput;
+  explanation: string;
+  ignored: string[];
+}
+
+export interface ExplainResponse {
+  ranking: { name: string; title: string; reason: string }[];
 }

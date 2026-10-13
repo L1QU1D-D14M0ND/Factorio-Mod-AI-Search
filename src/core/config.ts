@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
 
@@ -67,6 +67,20 @@ const ConfigSchema = z.object({
       candidates: z.coerce.number().int().min(10).max(4096).default(400),
     })
     .prefault({}),
+  /**
+   * Chat LLM for natural-language search. It only turns requests into filter objects
+   * (and explains results on demand); it never reads the database.
+   */
+  llm: z
+    .object({
+      /** openai = any OpenAI-compatible API (Ollama, LM Studio, llama.cpp, OpenRouter, OpenAI). */
+      provider: z.enum(['none', 'openai', 'anthropic']).default('none'),
+      baseUrl: z.string().url().optional(),
+      model: z.string().min(1).optional(),
+      apiKey: z.string().optional(),
+      timeoutMs: z.coerce.number().int().positive().default(60_000),
+    })
+    .prefault({}),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -90,7 +104,71 @@ function fromEnv(env: NodeJS.ProcessEnv): DeepPartial<Record<string, Record<stri
       baseUrl: env.FMF_EMBEDDINGS_BASE_URL,
       apiKey: env.FMF_EMBEDDINGS_API_KEY,
     }),
+    llm: pick({
+      provider: env.FMF_LLM_PROVIDER,
+      baseUrl: env.FMF_LLM_BASE_URL,
+      model: env.FMF_LLM_MODEL,
+      apiKey: env.FMF_LLM_API_KEY,
+    }),
   };
+}
+
+/** Settings that the UI can edit, and the env vars that override them. */
+export const EDITABLE_SETTINGS = {
+  llm: {
+    provider: 'FMF_LLM_PROVIDER',
+    baseUrl: 'FMF_LLM_BASE_URL',
+    model: 'FMF_LLM_MODEL',
+    apiKey: 'FMF_LLM_API_KEY',
+  },
+  embeddings: {
+    provider: 'FMF_EMBEDDINGS_PROVIDER',
+    baseUrl: 'FMF_EMBEDDINGS_BASE_URL',
+    model: 'FMF_EMBEDDINGS_MODEL',
+    apiKey: 'FMF_EMBEDDINGS_API_KEY',
+  },
+} as const;
+
+export type EditableSection = keyof typeof EDITABLE_SETTINGS;
+export type EditableField = 'provider' | 'baseUrl' | 'model' | 'apiKey';
+
+/** Fields of a section that are fixed by environment variables (the UI cannot change them). */
+export function envOverrides(section: EditableSection, env = process.env): EditableField[] {
+  return (Object.entries(EDITABLE_SETTINGS[section]) as [EditableField, string][])
+    .filter(([, name]) => env[name] !== undefined && env[name] !== '')
+    .map(([field]) => field);
+}
+
+/**
+ * Applies a patch to config.json, keeping every other key. `null` removes a field.
+ * The file can contain API keys, so it is written atomically and readable only by the owner.
+ */
+export function saveConfigPatch(
+  cwd: string,
+  patch: Partial<Record<EditableSection, Partial<Record<EditableField, string | null>>>>,
+): void {
+  const path = resolve(cwd, 'config.json');
+  const current = existsSync(path)
+    ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, Record<string, unknown>>)
+    : {};
+  for (const [section, fields] of Object.entries(patch)) {
+    const target = { ...(current[section] ?? {}) };
+    for (const [field, value] of Object.entries(fields ?? {})) {
+      if (value === null) delete target[field];
+      else if (value !== undefined) target[field] = value;
+    }
+    current[section] = target;
+  }
+  // Validate before writing so a bad value never ends up on disk.
+  ConfigSchema.parse(current);
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, JSON.stringify(current, null, 2) + '\n', { mode: 0o600 });
+  renameSync(tmp, path);
+  try {
+    chmodSync(path, 0o600);
+  } catch {
+    /* not supported on this platform */
+  }
 }
 
 function merge(
