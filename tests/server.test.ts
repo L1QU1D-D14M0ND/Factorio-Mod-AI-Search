@@ -121,6 +121,7 @@ describe('AI search and settings API', () => {
     const { call, read, mode } = await tmpServices();
     const res = await call('PUT', '/api/settings', {
       llm: { provider: 'anthropic', apiKey: 'sk-ant-secret', model: '' },
+      embeddings: {},
     });
     expect(res.status).toBe(200);
     const text = await res.text();

@@ -12,6 +12,85 @@ export interface ResultActions {
   setSort: (sort: Sort) => void;
   clearFilters: () => void;
   startSync: () => void;
+  explain: () => void;
+  openSettings: () => void;
+}
+
+/** What the AI made of an "Ask AI" request, plus the optional ranking. */
+function askBanner(state: AppState, actions: ResultActions): HTMLElement | null {
+  const ask = state.ask;
+  if (!ask) return null;
+  if (ask.status === 'thinking') {
+    return h(
+      'div',
+      { class: 'ask-banner', role: 'status' },
+      h('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      `Interpreting “${ask.prompt}”…`,
+    );
+  }
+  if (ask.status === 'error') {
+    const needsSetup = /settings/i.test(ask.error ?? '');
+    return h(
+      'div',
+      { class: 'ask-banner error', role: 'alert' },
+      h('span', null, ask.error),
+      needsSetup
+        ? h('button', { class: 'btn small', onclick: actions.openSettings }, 'Open settings')
+        : null,
+    );
+  }
+  const ranking = ask.ranking
+    ? h(
+        'ol',
+        { class: 'ranking' },
+        ask.ranking.map((r) =>
+          h(
+            'li',
+            null,
+            h('button', { class: 'link', onclick: () => actions.select(r.name) }, r.title),
+            r.reason
+              ? h('span', null, ` — ${r.reason}`)
+              : h('span', { class: 'muted' }, ' — no explanation'),
+          ),
+        ),
+      )
+    : null;
+  return h(
+    'div',
+    { class: 'ask-banner' },
+    h(
+      'div',
+      { class: 'ask-row' },
+      h('span', { class: 'ai-label' }, 'AI'),
+      h(
+        'span',
+        { class: 'grow' },
+        ask.explanation || 'Filters set from your request.',
+        ' ',
+        h('span', { class: 'muted small' }, 'Adjust them in the sidebar.'),
+      ),
+      !ask.ranking && state.results.length
+        ? h(
+            'button',
+            {
+              class: 'btn small',
+              disabled: ask.explaining,
+              onclick: actions.explain,
+              title: 'Ask the AI to rank and explain the top 10 results',
+            },
+            ask.explaining ? 'Explaining…' : 'Explain top results',
+          )
+        : null,
+    ),
+    ask.ignored.length
+      ? h(
+          'p',
+          { class: 'muted small' },
+          `Some suggested values were invalid and ignored (${ask.ignored.join(', ')}).`,
+        )
+      : null,
+    ranking,
+  );
 }
 
 const SORT_LABELS: Record<Sort, string> = {
@@ -132,6 +211,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
     clear(
       el,
       header,
+      askBanner(state, actions),
       h('div', { class: 'empty' }, h('h2', null, 'Search failed'), h('p', null, state.error)),
     );
     return;
@@ -142,6 +222,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
     clear(
       el,
       header,
+      askBanner(state, actions),
       emptyDb
         ? h(
             'div',
@@ -179,6 +260,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
   clear(
     el,
     header,
+    askBanner(state, actions),
     state.notice ? h('p', { class: 'notice' }, state.notice) : null,
     h(
       'div',

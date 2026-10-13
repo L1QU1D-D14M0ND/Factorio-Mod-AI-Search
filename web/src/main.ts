@@ -4,13 +4,20 @@ import {
   filterToSearchParams,
   type ModFilterInput,
 } from '../../src/shared/filters.ts';
-import type { FacetsResponse, ListDetail, ModList, ModSummary } from '../../src/shared/types.ts';
+import type {
+  ExplainResponse,
+  FacetsResponse,
+  ListDetail,
+  ModList,
+  ModSummary,
+} from '../../src/shared/types.ts';
 import { api } from './api.ts';
 import { clear, h } from './dom.ts';
 import { renderDetail } from './views/detail.ts';
 import { renderFilters } from './views/filters.ts';
 import { renderListPanel } from './views/list-panel.ts';
 import { renderResults } from './views/results.ts';
+import { openSettings } from './views/settings.ts';
 import { SyncBar } from './views/sync-bar.ts';
 import { toast } from './views/toast.ts';
 
@@ -29,6 +36,18 @@ export interface AppState {
   panel: 'detail' | 'list';
   lists: ModList[];
   activeList: ListDetail | null;
+  /** The current "Ask AI" request and what the model made of it. */
+  ask: AskState | null;
+}
+
+export interface AskState {
+  prompt: string;
+  status: 'thinking' | 'done' | 'error';
+  explanation: string;
+  ignored: string[];
+  error: string | null;
+  explaining: boolean;
+  ranking: ExplainResponse['ranking'] | null;
 }
 
 const state: AppState = {
@@ -43,6 +62,7 @@ const state: AppState = {
   panel: 'detail',
   lists: [],
   activeList: null,
+  ask: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,12 +86,20 @@ const panelEl = h(
   ),
   panelBody,
 );
-// Two search modes share one input: keywords (FTS, `q`) and theme (embeddings, `semantic`).
-type SearchMode = 'keywords' | 'theme';
+// Three search modes share one input: keywords (FTS, `q`), theme (embeddings, `semantic`)
+// and Ask AI (an LLM turns the request into a filter, on Enter).
+type SearchMode = 'keywords' | 'theme' | 'ask';
+const MODES: SearchMode[] = ['keywords', 'theme', 'ask'];
 let mode: SearchMode = state.filter.semantic ? 'theme' : 'keywords';
 const PLACEHOLDERS: Record<SearchMode, string> = {
   keywords: 'Search mods by name, title or description…',
   theme: 'Describe what you want, e.g. “harder biters” or “compact trains”…',
+  ask: 'Ask in your own words, then press Enter, e.g. “popular train mods for 2.0 without Space Age”',
+};
+const MODE_LABELS: Record<SearchMode, [string, string]> = {
+  keywords: ['Keywords', 'Match words in names and descriptions'],
+  theme: ['Theme', 'Find mods by meaning, not exact words'],
+  ask: ['Ask AI', 'Describe what you want; an AI model sets the filters'],
 };
 const searchInput = h('input', {
   type: 'search',
@@ -80,19 +108,16 @@ const searchInput = h('input', {
   value: (mode === 'theme' ? state.filter.semantic : state.filter.q) ?? '',
   'aria-label': 'Search mods',
 });
-const modeButtons = (['keywords', 'theme'] as const).map((m) =>
+const modeButtons = MODES.map((m) =>
   h(
     'button',
     {
       class: 'seg',
       'aria-pressed': String(m === mode),
-      title:
-        m === 'theme'
-          ? 'Find mods by meaning, not exact words'
-          : 'Match words in names and descriptions',
+      title: MODE_LABELS[m][1],
       onclick: () => setMode(m),
     },
-    m === 'theme' ? 'Theme' : 'Keywords',
+    MODE_LABELS[m][0],
   ),
 );
 const searchBox = h(
@@ -102,16 +127,26 @@ const searchBox = h(
   searchInput,
 );
 
+function updateModeUi(): void {
+  modeButtons.forEach((b, i) => b.setAttribute('aria-pressed', String(MODES[i] === mode)));
+  searchInput.placeholder = PLACEHOLDERS[mode];
+}
+
 function setMode(next: SearchMode): void {
   if (next === mode) return;
+  const previous = mode;
   mode = next;
-  modeButtons.forEach((b, i) =>
-    b.setAttribute('aria-pressed', String(['keywords', 'theme'][i] === mode)),
-  );
-  searchInput.placeholder = PLACEHOLDERS[mode];
-  const text = searchInput.value.trim() || undefined;
-  setFilter(mode === 'theme' ? { semantic: text, q: undefined } : { q: text, semantic: undefined });
+  updateModeUi();
   searchInput.focus();
+  if (mode === 'ask') {
+    // Nothing is sent until Enter: each request costs a model call.
+    renderMain();
+    return;
+  }
+  state.ask = null;
+  const text = (previous === 'ask' ? '' : searchInput.value.trim()) || undefined;
+  if (previous === 'ask') searchInput.value = '';
+  setFilter(mode === 'theme' ? { semantic: text, q: undefined } : { q: text, semantic: undefined });
 }
 const syncBar = new SyncBar(api, () => void refreshAfterSync());
 const filterToggle = h(
@@ -136,6 +171,16 @@ root.append(
     filterToggle,
     searchBox,
     syncBar.el,
+    h(
+      'button',
+      {
+        class: 'icon settings-button',
+        title: 'Settings',
+        'aria-label': 'Settings',
+        onclick: () => void openSettings(() => void refreshAfterSync()),
+      },
+      '⚙',
+    ),
   ),
   h('div', { class: 'layout' }, filtersEl, resultsEl, panelEl),
 );
@@ -143,6 +188,7 @@ root.append(
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
+  if (mode === 'ask') return;
   const text = searchInput.value.trim() || undefined;
   searchTimer = setTimeout(
     () => setFilter(mode === 'theme' ? { semantic: text } : { q: text }),
@@ -150,22 +196,83 @@ searchInput.addEventListener('input', () => {
   );
 });
 
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && mode === 'ask') {
+    e.preventDefault();
+    void ask(searchInput.value.trim());
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Ask AI: the model only produces a filter; the normal search runs with it.
+
+async function ask(prompt: string): Promise<void> {
+  if (prompt.length < 2) return;
+  state.ask = {
+    prompt,
+    status: 'thinking',
+    explanation: '',
+    ignored: [],
+    error: null,
+    explaining: false,
+    ranking: null,
+  };
+  renderMain();
+  try {
+    const res = await api.ask(prompt);
+    if (state.ask?.prompt !== prompt) return;
+    state.ask = {
+      ...state.ask,
+      status: 'done',
+      explanation: res.explanation,
+      ignored: res.ignored,
+    };
+    setFilter(res.filter, { replace: true, keepMode: true });
+  } catch (err) {
+    if (state.ask?.prompt !== prompt) return;
+    state.ask = { ...state.ask, status: 'error', error: (err as Error).message };
+    renderMain();
+  }
+}
+
+/** Asks the model to rank and explain the top results. Only on request. */
+async function explain(): Promise<void> {
+  const current = state.ask;
+  if (!current || current.explaining) return;
+  const names = state.results.slice(0, 10).map((m) => m.name);
+  if (!names.length) return;
+  current.explaining = true;
+  renderMain();
+  try {
+    const res = await api.explain(current.prompt, names);
+    if (state.ask === current) current.ranking = res.ranking;
+  } catch (err) {
+    toast((err as Error).message, 'error');
+  } finally {
+    current.explaining = false;
+    renderMain();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Search
 
 let searchSeq = 0;
 
-function setFilter(patch: Partial<ModFilterInput>, opts: { replace?: boolean } = {}): void {
+function setFilter(
+  patch: Partial<ModFilterInput>,
+  opts: { replace?: boolean; keepMode?: boolean } = {},
+): void {
   state.filter = { ...(opts.replace ? {} : state.filter), ...patch, page: undefined };
   for (const key of Object.keys(state.filter) as (keyof ModFilterInput)[]) {
     if (state.filter[key] === undefined) delete state.filter[key];
   }
-  if (opts.replace) {
+  // A ranking explains a specific result set; any filter change makes it stale.
+  if (state.ask) state.ask.ranking = null;
+  if (opts.replace && !opts.keepMode) {
+    state.ask = null;
     mode = state.filter.semantic ? 'theme' : 'keywords';
-    modeButtons.forEach((b, i) =>
-      b.setAttribute('aria-pressed', String(['keywords', 'theme'][i] === mode)),
-    );
-    searchInput.placeholder = PLACEHOLDERS[mode];
+    updateModeUi();
     searchInput.value = (mode === 'theme' ? state.filter.semantic : state.filter.q) ?? '';
   }
   syncUrl();
@@ -362,6 +469,8 @@ function renderMain(): void {
     toggleInList: (name) => void toggleInList(name),
     inList: isInList,
     loadMore: () => void search(true),
+    explain: () => void explain(),
+    openSettings: () => void openSettings(() => void refreshAfterSync()),
     setSort: (sort) => setFilter({ sort, order: undefined }),
     clearFilters: () => setFilter({}, { replace: true }),
     startSync: () => syncBar.start(),

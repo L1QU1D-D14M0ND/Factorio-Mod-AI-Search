@@ -152,6 +152,7 @@ export function saveConfigPatch(
     ? (JSON.parse(readFileSync(path, 'utf8')) as Record<string, Record<string, unknown>>)
     : {};
   for (const [section, fields] of Object.entries(patch)) {
+    if (!fields || !Object.keys(fields).length) continue;
     const target = { ...(current[section] ?? {}) };
     for (const [field, value] of Object.entries(fields ?? {})) {
       if (value === null) delete target[field];
