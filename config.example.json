@@ -1,0 +1,11 @@
+{
+  "dbPath": "data/mods.db",
+  "server": { "host": "127.0.0.1", "port": 3000 },
+  "portal": {
+    "requestsPerSecond": 3,
+    "concurrency": 2,
+    "maxRetries": 5,
+    "timeoutMs": 30000
+  },
+  "sync": { "gameVersion": "latest", "staleDays": 0 }
+}
