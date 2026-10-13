@@ -32,6 +32,7 @@ const SELECT_COLUMNS = `
 
 // bm25 column weights: name, title, summary, description.
 const RANK = 'bm25(mods_fts, 10.0, 8.0, 3.0, 1.0)';
+const POPULARITY_WEIGHT = 1.0;
 
 /** Builds a parameterized SQL query from a validated filter. No values are interpolated. */
 export function buildModQuery(f: ModFilter): BuiltQuery {
@@ -107,8 +108,9 @@ export function buildModQuery(f: ModFilter): BuiltQuery {
   switch (f.sort) {
     case 'relevance':
       if (fts) {
-        // Exact name/title matches first, then bm25 (lower is better), then popularity.
-        orderBy = `(m.name = ? COLLATE NOCASE OR m.title = ? COLLATE NOCASE) DESC, fts.rank ${desc ? 'ASC' : 'DESC'}, m.downloads_count DESC`;
+        // Exact name/title matches first, then bm25 (lower is better) nudged by popularity,
+        // so a well-known mod beats an obscure one with a slightly better text match.
+        orderBy = `(m.name = ? COLLATE NOCASE OR m.title = ? COLLATE NOCASE) DESC, fts.rank - ${POPULARITY_WEIGHT} * log10(m.downloads_count + 1) ${desc ? 'ASC' : 'DESC'}`;
         orderParams.push(f.q, f.q);
       } else {
         orderBy = `m.downloads_count ${dir}`;
