@@ -40,7 +40,7 @@ if (values.help) {
   process.exit(0);
 }
 
-const positiveInt = (flag: string, raw: string | undefined): number | undefined => {
+const nonNegative = (flag: string, raw: string | undefined): number | undefined => {
   if (raw === undefined) return undefined;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) {
@@ -58,9 +58,9 @@ if (!/^(latest|\d+\.\d+)$/.test(gameVersion)) {
 }
 const portal = {
   ...config.portal,
-  requestsPerSecond: positiveInt('rate', values.rate) || config.portal.requestsPerSecond,
+  requestsPerSecond: nonNegative('rate', values.rate) || config.portal.requestsPerSecond,
 };
-const concurrency = positiveInt('concurrency', values.concurrency) || portal.concurrency;
+const concurrency = nonNegative('concurrency', values.concurrency) || portal.concurrency;
 
 const db = openDatabase(config.dbPath);
 const client = new PortalClient(portal);
@@ -108,9 +108,9 @@ try {
   const result = await runSync(db, client, {
     gameVersion,
     all: values.all,
-    staleDays: positiveInt('stale-days', values['stale-days']) ?? config.sync.staleDays,
+    staleDays: nonNegative('stale-days', values['stale-days']) ?? config.sync.staleDays,
     resumeOnly: values.resume,
-    limit: positiveInt('limit', values.limit),
+    limit: nonNegative('limit', values.limit),
     concurrency,
     signal: controller.signal,
     onProgress: (p) => {
@@ -137,7 +137,7 @@ try {
 } catch (err) {
   if (isTTY) process.stdout.write('\n');
   if (err instanceof SyncLockedError) {
-    console.error(`${err.message} If it crashed, wait two minutes and retry.`);
+    console.error(`${err.message} If it crashed, wait ten minutes and retry.`);
   } else {
     console.error('Sync failed:', err instanceof Error ? err.message : err);
   }

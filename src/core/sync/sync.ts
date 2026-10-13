@@ -40,8 +40,8 @@ export interface SyncProgress {
 
 /** Drop a mod from the queue after this many failed /full attempts across runs. */
 const MAX_ATTEMPTS = 5;
-/** A lock whose heartbeat is older than this is considered abandoned. */
-const LOCK_STALE_MS = 2 * 60_000;
+/** A lock whose heartbeat is older than this is considered abandoned (the list download can be slow). */
+const LOCK_STALE_MS = 10 * 60_000;
 /** "latest" ignores bogus versions (e.g. "6.9") that only a handful of mods declare. */
 const MIN_MODS_FOR_LATEST = 25;
 
@@ -86,12 +86,20 @@ function enqueue(
   db: DB,
   opts: Pick<SyncOptions, 'all' | 'staleDays'>,
   gameVersion: string | null,
-  changed: Set<string>,
   now: string,
 ): number {
+  // "outdated": the latest release changed since the details were fetched.
   const rows = db
-    .prepare('SELECT name, factorio_version, full_synced_at FROM mods WHERE removed_at IS NULL')
-    .all() as { name: string; factorio_version: string | null; full_synced_at: string | null }[];
+    .prepare(
+      `SELECT name, factorio_version, full_synced_at, details_sha1 IS NOT latest_sha1 AS outdated
+       FROM mods WHERE removed_at IS NULL`,
+    )
+    .all() as {
+    name: string;
+    factorio_version: string | null;
+    full_synced_at: string | null;
+    outdated: number;
+  }[];
   const staleBefore = opts.staleDays
     ? new Date(Date.now() - opts.staleDays * 86_400_000).toISOString()
     : null;
@@ -109,7 +117,7 @@ function enqueue(
       if (!inScope) continue;
       const reason = !row.full_synced_at
         ? 'missing'
-        : changed.has(row.name)
+        : row.outdated
           ? 'changed'
           : staleBefore && row.full_synced_at < staleBefore
             ? 'stale'
@@ -159,14 +167,12 @@ export async function runSync(
   };
 
   try {
-    let changed = new Set<string>();
     if (!opts.resumeOnly) {
       progress.message = 'Downloading mod list…';
       emit();
       const list = await client.listAllMods();
       const now = new Date().toISOString();
       const applied = applyModList(db, list.results ?? [], now);
-      changed = new Set([...applied.added, ...applied.changed]);
       Object.assign(progress, {
         listed: applied.listed,
         added: applied.added.length,
@@ -178,7 +184,7 @@ export async function runSync(
 
     progress.gameVersion = resolveGameVersion(db, opts.gameVersion);
     if (!opts.resumeOnly) {
-      enqueue(db, opts, progress.gameVersion, changed, new Date().toISOString());
+      enqueue(db, opts, progress.gameVersion, new Date().toISOString());
     }
     setState(db, 'sync_game_version', progress.gameVersion ?? '');
 

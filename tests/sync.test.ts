@@ -55,6 +55,37 @@ describe('runSync', () => {
     expect((c3 as { removed_at: string | null }).removed_at).not.toBeNull();
   });
 
+  it('refreshes details that went stale while a mod was out of scope', async () => {
+    const db = openDatabase(':memory:');
+    const old = listEntry('m', { factorio: '1.1' });
+    await runSync(db, fakeClient([old], { m: fullMod(old) }).client, {
+      ...opts,
+      gameVersion: '1.1',
+    });
+
+    // New release while only 2.0 mods are in scope: not fetched...
+    const updated = listEntry('m', { version: '2.0.0', factorio: '1.1' });
+    const skipped = fakeClient([updated], { m: fullMod(updated) });
+    await runSync(db, skipped.client, { ...opts, gameVersion: '2.0' });
+    expect(skipped.fetched).toEqual([]);
+
+    // ...but picked up as soon as the mod is in scope again.
+    const later = fakeClient([updated], { m: fullMod(updated) });
+    await runSync(db, later.client, { ...opts, gameVersion: '1.1' });
+    expect(later.fetched).toEqual(['m']);
+  });
+
+  it('does not mark mods removed when the list looks truncated', async () => {
+    const db = openDatabase(':memory:');
+    const mods = Array.from({ length: 10 }, (_, i) => listEntry(`m${i}`));
+    await runSync(db, fakeClient(mods, {}).client, { ...opts, gameVersion: '9.0' });
+    const r = await runSync(db, fakeClient(mods.slice(0, 2), {}).client, {
+      ...opts,
+      gameVersion: '9.0',
+    });
+    expect(r.removed).toBe(0);
+  });
+
   it('keeps failed mods queued for the next run', async () => {
     const db = openDatabase(':memory:');
     const a = listEntry('a');

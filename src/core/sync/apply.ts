@@ -86,8 +86,9 @@ export function applyModList(db: DB, entries: PortalListEntry[], now: string): L
       });
     }
 
-    // Guard against wiping the catalogue on an empty/broken response.
-    if (seen.size > 0) {
+    // Guard against wiping the catalogue on an empty or truncated response.
+    const active = [...known.values()].filter((r) => !r.removed_at).length;
+    if (seen.size > 0 && seen.size >= active * 0.5) {
       const markRemoved = db.prepare('UPDATE mods SET removed_at = ? WHERE name = ?');
       const unqueue = db.prepare('DELETE FROM sync_queue WHERE mod_name = ?');
       for (const [name, row] of known) {
@@ -126,10 +127,12 @@ export function applyFullMod(db: DB, mod: PortalFullMod, now: string): void {
         title = @title, owner = @owner, summary = @summary, description = @description,
         category = @category, downloads_count = @downloads_count, score = @score,
         created_at = @created_at, updated_at = @updated_at,
-        latest_version = COALESCE(@latest_version, latest_version),
-        latest_release_at = COALESCE(@latest_release_at, latest_release_at),
-        latest_sha1 = COALESCE(@latest_sha1, latest_sha1),
-        factorio_version = COALESCE(@factorio_version, factorio_version),
+        -- latest_* come from the mod list; remember which release these details describe.
+        latest_version = COALESCE(latest_version, @latest_version),
+        latest_release_at = COALESCE(latest_release_at, @latest_release_at),
+        latest_sha1 = COALESCE(latest_sha1, @latest_sha1),
+        factorio_version = COALESCE(factorio_version, @factorio_version),
+        details_sha1 = COALESCE(latest_sha1, @latest_sha1),
         requires_space_age = @requires_space_age,
         incompatible_space_age = @incompatible_space_age,
         deprecated = @deprecated, feature_flags = @feature_flags, thumbnail = @thumbnail,

@@ -122,4 +122,11 @@ export const MIGRATIONS: string[] = [
     PRIMARY KEY (list_id, mod_name)
   ) WITHOUT ROWID;
   `,
+
+  /* sql */ `
+  -- sha1 of the latest release when /full details were fetched; a mismatch with
+  -- latest_sha1 means the details are outdated.
+  ALTER TABLE mods ADD COLUMN details_sha1 TEXT;
+  UPDATE mods SET details_sha1 = latest_sha1 WHERE full_synced_at IS NOT NULL;
+  `,
 ];

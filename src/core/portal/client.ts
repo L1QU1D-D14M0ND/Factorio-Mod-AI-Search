@@ -50,14 +50,18 @@ export class PortalClient {
 
   /** Every mod on the portal in a single request (including deprecated ones). */
   listAllMods(): Promise<PortalListResponse> {
-    return this.getJson<PortalListResponse>('/api/mods?page_size=max&hide_deprecated=false');
+    // ~14 MB response: allow much longer than a normal request on slow connections.
+    return this.getJson<PortalListResponse>(
+      '/api/mods?page_size=max&hide_deprecated=false',
+      Math.max(this.config.timeoutMs, 5 * 60_000),
+    );
   }
 
   getFullMod(name: string): Promise<PortalFullMod> {
     return this.getJson<PortalFullMod>(`/api/mods/${encodeURIComponent(name)}/full`);
   }
 
-  private async getJson<T>(path: string): Promise<T> {
+  private async getJson<T>(path: string, timeoutMs = this.config.timeoutMs): Promise<T> {
     const url = this.config.baseUrl + path;
     for (let attempt = 0; ; attempt++) {
       await this.limiter.acquire();
@@ -65,7 +69,7 @@ export class PortalClient {
       try {
         const res = await this.fetchImpl(url, {
           headers: { 'User-Agent': this.config.userAgent, Accept: 'application/json' },
-          signal: AbortSignal.timeout(this.config.timeoutMs),
+          signal: AbortSignal.timeout(timeoutMs),
         });
         if (res.ok) return (await res.json()) as T;
         if (res.status === 404) throw new NotFoundError(`Not found: ${path}`);
