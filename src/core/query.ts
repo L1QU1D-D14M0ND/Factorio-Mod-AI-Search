@@ -30,20 +30,41 @@ const SELECT_COLUMNS = `
   m.full_synced_at IS NOT NULL AS has_details, m.removed_at,
   (SELECT group_concat(t.tag, ',') FROM mod_tags t WHERE t.mod_name = m.name) AS tags`;
 
+export interface SemanticInput {
+  /** Query embedding as a float32 blob (see embeddings/index.ts vectorBlob). */
+  vector: Buffer;
+  /** Nearest neighbours to consider before filters are applied. */
+  k: number;
+}
+
 // bm25 column weights: name, title, summary, description.
 const RANK = 'bm25(mods_fts, 10.0, 8.0, 3.0, 1.0)';
 const POPULARITY_WEIGHT = 1.0;
+// Theme search: cosine distance (0..2) nudged slightly by popularity.
+const SEMANTIC_POPULARITY_WEIGHT = 0.025;
 
-/** Builds a parameterized SQL query from a validated filter. No values are interpolated. */
-export function buildModQuery(f: ModFilter): BuiltQuery {
+/**
+ * Builds a parameterized SQL query from a validated filter. No values are interpolated.
+ * Theme search (`f.semantic`) only applies when the caller passes the query embedding:
+ * the k nearest mods are taken from sqlite-vec, then the other filters narrow them down.
+ */
+export function buildModQuery(f: ModFilter, semantic?: SemanticInput): BuiltQuery {
   const where: string[] = [];
   const params: unknown[] = [];
 
   const fts = f.q ? toFtsQuery(f.q) : null;
-  const from = fts
-    ? `mods m JOIN (SELECT rowid, ${RANK} AS rank FROM mods_fts WHERE mods_fts MATCH ?) fts ON fts.rowid = m.id`
-    : 'mods m';
-  const fromParams: unknown[] = fts ? [fts] : [];
+  const sem = f.semantic && semantic ? semantic : null;
+  let from = 'mods m';
+  const fromParams: unknown[] = [];
+  if (fts) {
+    from += ` JOIN (SELECT rowid, ${RANK} AS rank FROM mods_fts WHERE mods_fts MATCH ?) fts ON fts.rowid = m.id`;
+    fromParams.push(fts);
+  }
+  if (sem) {
+    from +=
+      ' JOIN (SELECT rowid, distance FROM vec_mods WHERE embedding MATCH ? AND k = ?) sem ON sem.rowid = m.id';
+    fromParams.push(sem.vector, sem.k);
+  }
 
   if (!f.includeRemoved) where.push('m.removed_at IS NULL');
   if (f.hideDeprecated) where.push('m.deprecated = 0');
@@ -107,7 +128,9 @@ export function buildModQuery(f: ModFilter): BuiltQuery {
   let orderBy: string;
   switch (f.sort) {
     case 'relevance':
-      if (fts) {
+      if (sem) {
+        orderBy = `sem.distance - ${SEMANTIC_POPULARITY_WEIGHT} * log10(m.downloads_count + 1) ${dir === 'DESC' ? 'ASC' : 'DESC'}`;
+      } else if (fts) {
         // Exact name/title matches first, then bm25 (lower is better) nudged by popularity,
         // so a well-known mod beats an obscure one with a slightly better text match.
         orderBy = `(m.name = ? COLLATE NOCASE OR m.title = ? COLLATE NOCASE) DESC, fts.rank - ${POPULARITY_WEIGHT} * log10(m.downloads_count + 1) ${desc ? 'ASC' : 'DESC'}`;
@@ -135,7 +158,7 @@ export function buildModQuery(f: ModFilter): BuiltQuery {
 
   const offset = (f.page - 1) * f.pageSize;
   return {
-    sql: `SELECT ${SELECT_COLUMNS} FROM ${from} ${whereSql} ORDER BY ${orderBy}, m.name ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${SELECT_COLUMNS}, ${sem ? '1 - sem.distance' : 'NULL'} AS similarity FROM ${from} ${whereSql} ORDER BY ${orderBy}, m.name ASC LIMIT ? OFFSET ?`,
     countSql: `SELECT COUNT(*) AS total FROM ${from} ${whereSql}`,
     params: [...fromParams, ...params, ...orderParams, f.pageSize, offset],
     countParams: [...fromParams, ...params],

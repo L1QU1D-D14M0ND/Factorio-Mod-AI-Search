@@ -2,7 +2,9 @@ import { parseArgs } from 'node:util';
 import { loadConfig } from '../core/config.js';
 import { openDatabase } from '../core/db/connection.js';
 import { PortalClient } from '../core/portal/client.js';
+import { ThemeSearch } from '../core/embeddings/service.js';
 import { runSync, SyncLockedError, type SyncProgress } from '../core/sync/sync.js';
+import { embedWithProgress } from './embed-progress.js';
 
 const HELP = `Usage: npm run sync -- [options]
 
@@ -16,6 +18,7 @@ Options:
   --all               Fetch details for every mod, regardless of game version
   --stale-days <n>    Also re-fetch details older than n days (0 = never)
   --resume            Only drain the pending queue; skip the mod list download
+  --no-embed          Skip updating the theme-search index afterwards
   --limit <n>         Stop after n detail requests
   --rate <n>          Requests per second (default from config: portal.requestsPerSecond)
   --concurrency <n>   Parallel requests (default from config: portal.concurrency)
@@ -28,6 +31,7 @@ const { values } = parseArgs({
     all: { type: 'boolean', default: false },
     'stale-days': { type: 'string' },
     resume: { type: 'boolean', default: false },
+    'no-embed': { type: 'boolean', default: false },
     limit: { type: 'string' },
     rate: { type: 'string' },
     concurrency: { type: 'string' },
@@ -134,6 +138,20 @@ try {
   if (isTTY && result.queued > 0) process.stdout.write('\n');
   console.log(`${result.message} (${result.done} fetched, ${result.failed} failed)`);
   process.exitCode = result.phase === 'aborted' ? 130 : 0;
+
+  if (result.phase === 'done' && config.sync.embed && !values['no-embed']) {
+    const theme = new ThemeSearch(db, config.embeddings);
+    if (theme.provider) {
+      console.log(`Updating theme index (${theme.provider.id})…`);
+      // The catalogue is synced either way; a failing embedding provider is only a warning.
+      await embedWithProgress(theme, { signal: controller.signal }).catch((err: unknown) => {
+        console.warn(
+          `Theme index not updated: ${err instanceof Error ? err.message : err}\n` +
+            'Keyword search still works. Fix the embeddings settings and run "npm run embed".',
+        );
+      });
+    }
+  }
 } catch (err) {
   if (isTTY) process.stdout.write('\n');
   if (err instanceof SyncLockedError) {

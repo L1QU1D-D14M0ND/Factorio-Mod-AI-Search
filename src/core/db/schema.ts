@@ -129,4 +129,15 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE mods ADD COLUMN details_sha1 TEXT;
   UPDATE mods SET details_sha1 = latest_sha1 WHERE full_synced_at IS NOT NULL;
   `,
+
+  /* sql */ `
+  -- Which mods have a theme-search vector, and for which text. The vectors themselves
+  -- live in the sqlite-vec table "vec_mods", created at runtime because its dimension
+  -- depends on the embedding model.
+  CREATE TABLE mod_embeddings (
+    mod_id       INTEGER PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE,
+    text_hash    TEXT NOT NULL,
+    embedded_at  TEXT NOT NULL
+  );
+  `,
 ];

@@ -39,6 +39,32 @@ const ConfigSchema = z.object({
         .default('latest'),
       /** Re-fetch /full for mods whose details are older than this many days (0 = never). */
       staleDays: z.coerce.number().int().min(0).default(0),
+      /** Update theme-search embeddings after each sync. */
+      embed: z.boolean().default(true),
+    })
+    .prefault({}),
+  /**
+   * Embeddings for semantic "theme" search. Independent from any chat LLM
+   * (Claude, for example, has no embeddings API).
+   */
+  embeddings: z
+    .object({
+      /** transformers = local, in-process (default); ollama / openai = HTTP APIs; none = disabled. */
+      provider: z.enum(['transformers', 'ollama', 'openai', 'none']).default('transformers'),
+      /** Model name. Defaults depend on the provider (see DEFAULT_EMBEDDING_MODELS). */
+      model: z.string().min(1).optional(),
+      /** API base URL for ollama / openai-compatible providers (LM Studio, llama.cpp, OpenAI…). */
+      baseUrl: z.string().url().optional(),
+      /** API key for openai-compatible providers. Prefer the FMF_EMBEDDINGS_API_KEY env var. */
+      apiKey: z.string().optional(),
+      /** Text prepended to queries / documents. Defaults are known for nomic and e5 models. */
+      queryPrefix: z.string().optional(),
+      documentPrefix: z.string().optional(),
+      batchSize: z.coerce.number().int().min(1).max(512).default(64),
+      /** Where transformers.js caches downloaded models. */
+      cacheDir: z.string().default('data/models'),
+      /** Nearest neighbours considered per theme search before filters are applied. */
+      candidates: z.coerce.number().int().min(10).max(4096).default(400),
     })
     .prefault({}),
 });
@@ -58,6 +84,12 @@ function fromEnv(env: NodeJS.ProcessEnv): DeepPartial<Record<string, Record<stri
       userAgent: env.FMF_USER_AGENT,
     }),
     sync: pick({ gameVersion: env.FMF_GAME_VERSION }),
+    embeddings: pick({
+      provider: env.FMF_EMBEDDINGS_PROVIDER,
+      model: env.FMF_EMBEDDINGS_MODEL,
+      baseUrl: env.FMF_EMBEDDINGS_BASE_URL,
+      apiKey: env.FMF_EMBEDDINGS_API_KEY,
+    }),
   };
 }
 
@@ -96,5 +128,9 @@ export function loadConfig(cwd = process.cwd(), env = process.env): Config {
   if (env.FMF_DB_PATH) raw = { ...raw, dbPath: env.FMF_DB_PATH };
 
   const config = ConfigSchema.parse(raw);
-  return { ...config, dbPath: resolve(cwd, config.dbPath) };
+  return {
+    ...config,
+    dbPath: resolve(cwd, config.dbPath),
+    embeddings: { ...config.embeddings, cacheDir: resolve(cwd, config.embeddings.cacheDir) },
+  };
 }

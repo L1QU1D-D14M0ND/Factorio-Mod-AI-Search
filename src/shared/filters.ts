@@ -12,6 +12,8 @@ export type Sort = (typeof SORTS)[number];
 export const ModFilterSchema = z.object({
   /** Full-text query over name, title, summary and description. */
   q: z.string().trim().max(200).optional(),
+  /** Theme search: a free-text description matched by meaning (embeddings), not keywords. */
+  semantic: z.string().trim().max(300).optional(),
   categories: z.array(z.enum(CATEGORIES)).max(CATEGORIES.length).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(20).optional(),
   /** Whether a mod must have all selected tags or any of them. */
@@ -67,6 +69,7 @@ export function filterFromSearchParams(params: URLSearchParams): Record<string, 
   }
   for (const key of [
     'q',
+    'semantic',
     'tagMode',
     'owner',
     'factorioVersion',

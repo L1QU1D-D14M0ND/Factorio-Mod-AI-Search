@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { MIGRATIONS } from './schema.js';
@@ -11,8 +12,26 @@ export function openDatabase(path: string): DB {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  loadVectorExtension(db);
   migrate(db);
   return db;
+}
+
+const vectorSupport = new WeakMap<DB, string | null>();
+
+/** Loads sqlite-vec. Failure is not fatal: only theme search becomes unavailable. */
+function loadVectorExtension(db: DB): void {
+  try {
+    sqliteVec.load(db);
+    vectorSupport.set(db, null);
+  } catch (err) {
+    vectorSupport.set(db, err instanceof Error ? err.message : String(err));
+  }
+}
+
+/** Null when sqlite-vec is loaded, otherwise the reason it could not be. */
+export function vectorSupportError(db: DB): string | null {
+  return vectorSupport.has(db) ? vectorSupport.get(db)! : 'sqlite-vec not loaded';
 }
 
 export function migrate(db: DB): void {
