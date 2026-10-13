@@ -847,3 +847,178 @@ ul.plain li {
     padding: 12px;
   }
 }
+
+/* ---- Ask AI ------------------------------------------------------------- */
+
+.ask-banner {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+.ask-banner.error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.ask-banner .muted.small,
+.ask-banner p {
+  margin: 0;
+}
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ai-label {
+  flex: none;
+  padding: 1px 7px;
+  background: var(--accent);
+  border-radius: 4px;
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ranking {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+}
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  vertical-align: -1px;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* ---- Settings dialog ------------------------------------------------------ */
+
+.settings-button {
+  font-size: 18px;
+  color: var(--muted);
+}
+.settings-button:hover {
+  color: var(--accent);
+}
+
+dialog.settings {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+dialog.settings::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+dialog.settings form {
+  display: grid;
+  gap: 16px;
+  padding: 16px 20px;
+}
+dialog.settings header,
+dialog.settings footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+dialog.settings footer {
+  justify-content: flex-end;
+}
+dialog.settings section {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+dialog.settings section p {
+  margin: 0;
+}
+dialog.settings label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+dialog.settings label.check {
+  display: flex;
+  font-weight: 400;
+}
+dialog.settings .fields {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+dialog.settings select,
+dialog.settings input[type='url'],
+dialog.settings input[type='text'],
+dialog.settings input[type='password'] {
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-weight: 400;
+}
+dialog.settings input:disabled,
+dialog.settings select:disabled {
+  opacity: 0.6;
+}
+dialog.settings .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+dialog.settings .row input {
+  flex: 1;
+}
+.test-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.test-status.ok,
+.ok {
+  color: var(--good);
+}
+.test-status.error {
+  color: var(--bad);
+}
+
+.similar-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}

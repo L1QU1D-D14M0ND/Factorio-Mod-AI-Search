@@ -19,6 +19,7 @@ const EXPORTS = [
   ['txt', '.txt'],
   ['md', '.md'],
   ['mod-list', 'mod-list.json'],
+  ['print', 'PDF (print)'],
 ] as const;
 
 let includeDeps = true;
@@ -95,7 +96,14 @@ export function renderListPanel(el: HTMLElement, state: AppState, actions: ListA
           {
             class: `btn small${list.items.length ? '' : ' disabled'}`,
             href: list.items.length ? api.exportUrl(list.id, format, includeDeps) : undefined,
-            download: '',
+            // The print page opens in a new tab; the other formats download a file.
+            ...(format === 'print'
+              ? {
+                  target: '_blank',
+                  rel: 'noopener',
+                  title: 'Opens a printable page: choose “Save as PDF”',
+                }
+              : { download: '' }),
           },
           label,
         ),

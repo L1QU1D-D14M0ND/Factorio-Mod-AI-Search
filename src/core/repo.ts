@@ -4,7 +4,7 @@ import type { ModFilter } from '../shared/filters.js';
 import type { FacetsResponse, ModDetail, ModSummary, SearchResponse } from '../shared/types.js';
 import type { DB } from './db/connection.js';
 import { compareVersions } from './deps.js';
-import { buildModQuery, type SemanticInput } from './query.js';
+import { buildModQuery, type RankedInput, type SemanticInput } from './query.js';
 
 export interface RepoOptions {
   assetsUrl: string;
@@ -67,8 +67,8 @@ export class ModRepository {
     };
   }
 
-  search(filter: ModFilter, semantic?: SemanticInput): SearchResponse {
-    const q = buildModQuery(filter, semantic);
+  search(filter: ModFilter, semantic?: SemanticInput, ranked?: RankedInput): SearchResponse {
+    const q = buildModQuery(filter, semantic, ranked);
     const rows = this.db.prepare(q.sql).all(...q.params) as ModRow[];
     const { total } = this.db.prepare(q.countSql).get(...q.countParams) as { total: number };
     return {
@@ -77,6 +77,19 @@ export class ModRepository {
       pageSize: filter.pageSize,
       items: rows.map((r) => this.toSummary(r)),
     };
+  }
+
+  /** Summaries for a set of mods, in the given order (unknown names are skipped). */
+  summaries(names: string[]): ModSummary[] {
+    const get = this.db.prepare(
+      `SELECT m.*, m.full_synced_at IS NOT NULL AS has_details,
+         (SELECT group_concat(t.tag, ',') FROM mod_tags t WHERE t.mod_name = m.name) AS tags
+       FROM mods m WHERE m.name = ?`,
+    );
+    return names
+      .map((n) => get.get(n) as ModRow | undefined)
+      .filter((r): r is ModRow => !!r)
+      .map((r) => this.toSummary(r));
   }
 
   getMod(name: string): ModDetail | null {
