@@ -6,6 +6,8 @@ real filters, full-text search, dependency info and exportable mod lists.
 - Runs entirely on your machine: a small Node.js server plus a web UI at `http://localhost:3000`.
 - Works **without any AI**. Theme search runs a small embedding model locally (no account, no API
   key) and can be switched to Ollama or an OpenAI-compatible API, or turned off.
+- Optional **Ask AI** mode with the LLM of your choice: local (Ollama, LM Studio, llama.cpp) or
+  hosted (Claude, OpenAI, OpenRouter). Set it up from the ⚙ Settings dialog.
 - Keeps its own copy of the mod catalogue in a single SQLite file and only contacts the
   portal when you ask it to refresh.
 
@@ -15,6 +17,9 @@ real filters, full-text search, dependency info and exportable mod lists.
   popularity).
 - **Theme search**: describe what you want ("harder biters", "ocean planet", "compact trains")
   and get mods with a similar meaning, even if they use different words. Combines with all filters.
+- **Ask AI**: ask in your own words ("popular train mods for 2.0 that don't need Space Age"). The
+  model turns the request into filters, which are applied like any other and stay editable in the
+  sidebar. **Explain top results** asks it to rank and justify the top 10, only when you click it.
 - **Filters**: Factorio version (any release or latest only), Space Age (required / works
   without / incompatible), category, tags, author, minimum downloads, updated since, hide deprecated.
 - **Sorting** by relevance, downloads, trending score, last update, creation date or title.
@@ -85,9 +90,11 @@ npm run embed -- --rebuild            # re-embed everything
 
 ## Configuration
 
-Everything has sensible defaults. To change something, copy `config.example.json` to
-`config.json` or `.env.example` to `.env`. Both are git-ignored. Environment variables override
-`config.json`.
+Everything has sensible defaults. The AI assistant and theme search can be configured from the
+**⚙ Settings** dialog in the app; everything else (and the same AI settings, if you prefer) via
+`config.json` (copy `config.example.json`) or `.env` (copy `.env.example`). Both are git-ignored.
+Environment variables override `config.json`, and settings fixed by an environment variable are
+shown as locked in the dialog.
 
 | Setting                    | Env var                   | Default        | Description                                                         |
 | -------------------------- | ------------------------- | -------------- | ------------------------------------------------------------------- |
@@ -134,6 +141,37 @@ FMF_EMBEDDINGS_MODEL=text-embedding-nomic-embed-text-v1.5
 Changing the provider or model rebuilds the index on the next sync or `npm run embed`. If theme
 search is unavailable, the UI falls back to keyword search and says so.
 
+### Ask AI (chat LLM)
+
+The model **never reads your database**. It receives your request plus the list of valid
+categories, tags and Factorio versions, and returns a filter object. The app validates every field
+(invalid ones are dropped and reported) and runs the search itself. Only when you click **Explain
+top results** does it receive the titles and summaries of those 10 mods.
+
+| Setting        | Env var            | Notes                                                                 |
+| -------------- | ------------------ | --------------------------------------------------------------------- |
+| `llm.provider` | `FMF_LLM_PROVIDER` | `none` (default), `openai` (any OpenAI-compatible API) or `anthropic` |
+| `llm.baseUrl`  | `FMF_LLM_BASE_URL` | e.g. `http://127.0.0.1:11434/v1` for Ollama                           |
+| `llm.model`    | `FMF_LLM_MODEL`    | required for `openai`; `anthropic` defaults to `claude-haiku-5-5`     |
+| `llm.apiKey`   | `FMF_LLM_API_KEY`  | not needed for local servers                                          |
+
+| Server                     | Provider    | Base URL                       |
+| -------------------------- | ----------- | ------------------------------ |
+| Ollama                     | `openai`    | `http://127.0.0.1:11434/v1`    |
+| LM Studio                  | `openai`    | `http://127.0.0.1:1234/v1`     |
+| llama.cpp (`llama-server`) | `openai`    | `http://127.0.0.1:8080/v1`     |
+| OpenRouter                 | `openai`    | `https://openrouter.ai/api/v1` |
+| OpenAI                     | `openai`    | `https://api.openai.com/v1`    |
+| Claude (Anthropic)         | `anthropic` | `https://api.anthropic.com`    |
+
+Small local models work: the app asks for JSON with a schema when the server supports it, and
+falls back to plain JSON otherwise. Instruction-tuned models of ~7B parameters or more give the
+best results.
+
+**API keys** entered in Settings are stored in `config.json` on your computer (file mode 600,
+git-ignored) and are never sent back to the browser. Settings can only be changed from the
+computer running the app.
+
 ## Exporting `mod-list.json`
 
 `mod-list.json` is the file Factorio keeps in its `mods` folder to know which mods are enabled.
@@ -166,7 +204,8 @@ src/
     repo.ts    search, details and facets
     lists.ts   saved mod lists
     export/    dependency resolution and txt / md / mod-list.json writers
-  server/      Hono HTTP API (also serves the built UI) and on-demand detail fetching
+    llm/       chat LLM adapters and request -> filter conversion
+  server/      Hono HTTP API (also serves the built UI), settings and on-demand details
   cli/         `npm run sync` and `npm run embed`
 web/           Vite + vanilla TypeScript UI (only talks to the server over HTTP)
 tests/         Vitest unit tests
@@ -180,8 +219,8 @@ in Tauri or Electron later.
 1. ✅ Crawler + SQLite database (`npm run sync`)
 2. ✅ Web UI + API: search, filters, details, saved lists, export
 3. ✅ Theme search with local embeddings (transformers.js + sqlite-vec), optional Ollama / OpenAI-compatible
-4. Natural-language search through a pluggable LLM (Ollama, LM Studio, llama.cpp, OpenAI-compatible
-   APIs, Anthropic). The LLM only produces a validated filter object; it never reads the database.
+4. ✅ Ask AI: natural-language search through a pluggable LLM (Ollama, LM Studio, llama.cpp,
+   OpenAI-compatible APIs, Anthropic), with a settings UI
 5. Related mods (dependency graph + embeddings + shared tags), PDF export, release packaging
 
 ## License
