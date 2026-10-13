@@ -28,8 +28,18 @@ real filters, full-text search, dependency info and exportable mod lists.
   Details that were not synced are fetched from the portal when you open the mod (one request),
   with a link to the mod portal as a fallback.
 - **Saved lists** stored in the database, with conflict and missing-mod warnings.
-- **Export** a list to `.txt`, `.md` or Factorio's `mod-list.json`, optionally adding all required
-  dependencies (resolved recursively, DLC included).
+- **Find similar**: from any mod, search for related mods by theme, shared tags and shared
+  dependencies (rare libraries count more than ubiquitous ones). Works together with all filters,
+  so you can ask for alternatives that support your Factorio version.
+- **Export** a list to `.txt`, `.md`, Factorio's `mod-list.json`, or a print-friendly page you can
+  save as **PDF** from the browser. Exports can add all required dependencies (resolved
+  recursively, DLC included).
+
+![Keyword search with filters and mod details](docs/screenshots/search.png)
+
+| Theme search                                | Find similar                                  |
+| ------------------------------------------- | --------------------------------------------- |
+| ![Theme search](docs/screenshots/theme.png) | ![Find similar](docs/screenshots/similar.png) |
 
 ## Requirements
 
@@ -202,6 +212,7 @@ src/
     deps.ts    Factorio dependency-string parser
     query.ts   filter object -> parameterized SQL
     repo.ts    search, details and facets
+    related.ts "Find similar" scoring (theme + tags + dependencies)
     lists.ts   saved mod lists
     export/    dependency resolution and txt / md / mod-list.json writers
     llm/       chat LLM adapters and request -> filter conversion
@@ -221,7 +232,7 @@ in Tauri or Electron later.
 3. ✅ Theme search with local embeddings (transformers.js + sqlite-vec), optional Ollama / OpenAI-compatible
 4. ✅ Ask AI: natural-language search through a pluggable LLM (Ollama, LM Studio, llama.cpp,
    OpenAI-compatible APIs, Anthropic), with a settings UI
-5. Related mods (dependency graph + embeddings + shared tags), PDF export, release packaging
+5. ✅ Find similar (dependency graph + embeddings + shared tags), print/PDF export, screenshots
 
 ## License
 
