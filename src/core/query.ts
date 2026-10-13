@@ -30,6 +30,11 @@ const SELECT_COLUMNS = `
   m.full_synced_at IS NOT NULL AS has_details, m.removed_at,
   (SELECT group_concat(t.tag, ',') FROM mod_tags t WHERE t.mod_name = m.name) AS tags`;
 
+/** A precomputed ranking (e.g. "Find similar"): only these mods, ordered by score. */
+export interface RankedInput {
+  candidates: { id: number; score: number }[];
+}
+
 export interface SemanticInput {
   /** Query embedding as a float32 blob (see embeddings/index.ts vectorBlob). */
   vector: Buffer;
@@ -42,13 +47,19 @@ const RANK = 'bm25(mods_fts, 10.0, 8.0, 3.0, 1.0)';
 const POPULARITY_WEIGHT = 1.0;
 // Theme search: cosine distance (0..2) nudged slightly by popularity.
 const SEMANTIC_POPULARITY_WEIGHT = 0.025;
+// "Find similar": score (0..1) nudged slightly by popularity.
+const RANKED_POPULARITY_WEIGHT = 0.02;
 
 /**
  * Builds a parameterized SQL query from a validated filter. No values are interpolated.
  * Theme search (`f.semantic`) only applies when the caller passes the query embedding:
  * the k nearest mods are taken from sqlite-vec, then the other filters narrow them down.
  */
-export function buildModQuery(f: ModFilter, semantic?: SemanticInput): BuiltQuery {
+export function buildModQuery(
+  f: ModFilter,
+  semantic?: SemanticInput,
+  ranked?: RankedInput,
+): BuiltQuery {
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -64,6 +75,13 @@ export function buildModQuery(f: ModFilter, semantic?: SemanticInput): BuiltQuer
     from +=
       ' JOIN (SELECT rowid, distance FROM vec_mods WHERE embedding MATCH ? AND k = ?) sem ON sem.rowid = m.id';
     fromParams.push(sem.vector, sem.k);
+  }
+  const rk = f.similarTo && ranked ? ranked : null;
+  if (rk) {
+    // Passed as one JSON parameter: [[id, score], …].
+    from +=
+      " JOIN (SELECT value ->> '$[0]' AS id, value ->> '$[1]' AS score FROM json_each(?)) rk ON rk.id = m.id";
+    fromParams.push(JSON.stringify(rk.candidates.map((c) => [c.id, c.score])));
   }
 
   if (!f.includeRemoved) where.push('m.removed_at IS NULL');
@@ -128,7 +146,9 @@ export function buildModQuery(f: ModFilter, semantic?: SemanticInput): BuiltQuer
   let orderBy: string;
   switch (f.sort) {
     case 'relevance':
-      if (sem) {
+      if (rk) {
+        orderBy = `rk.score + ${RANKED_POPULARITY_WEIGHT} * log10(m.downloads_count + 1) ${dir}`;
+      } else if (sem) {
         orderBy = `sem.distance - ${SEMANTIC_POPULARITY_WEIGHT} * log10(m.downloads_count + 1) ${dir === 'DESC' ? 'ASC' : 'DESC'}`;
       } else if (fts) {
         // Exact name/title matches first, then bm25 (lower is better) nudged by popularity,
@@ -158,7 +178,7 @@ export function buildModQuery(f: ModFilter, semantic?: SemanticInput): BuiltQuer
 
   const offset = (f.page - 1) * f.pageSize;
   return {
-    sql: `SELECT ${SELECT_COLUMNS}, ${sem ? '1 - sem.distance' : 'NULL'} AS similarity FROM ${from} ${whereSql} ORDER BY ${orderBy}, m.name ASC LIMIT ? OFFSET ?`,
+    sql: `SELECT ${SELECT_COLUMNS}, ${rk ? 'rk.score' : sem ? '1 - sem.distance' : 'NULL'} AS similarity FROM ${from} ${whereSql} ORDER BY ${orderBy}, m.name ASC LIMIT ? OFFSET ?`,
     countSql: `SELECT COUNT(*) AS total FROM ${from} ${whereSql}`,
     params: [...fromParams, ...params, ...orderParams, f.pageSize, offset],
     countParams: [...fromParams, ...params],

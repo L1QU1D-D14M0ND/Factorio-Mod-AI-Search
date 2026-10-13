@@ -1012,3 +1012,13 @@ dialog.settings .row input {
 .test-status.error {
   color: var(--bad);
 }
+
+.similar-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+}

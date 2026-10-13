@@ -4,7 +4,7 @@ import type { ModFilter } from '../shared/filters.js';
 import type { FacetsResponse, ModDetail, ModSummary, SearchResponse } from '../shared/types.js';
 import type { DB } from './db/connection.js';
 import { compareVersions } from './deps.js';
-import { buildModQuery, type SemanticInput } from './query.js';
+import { buildModQuery, type RankedInput, type SemanticInput } from './query.js';
 
 export interface RepoOptions {
   assetsUrl: string;
@@ -67,8 +67,8 @@ export class ModRepository {
     };
   }
 
-  search(filter: ModFilter, semantic?: SemanticInput): SearchResponse {
-    const q = buildModQuery(filter, semantic);
+  search(filter: ModFilter, semantic?: SemanticInput, ranked?: RankedInput): SearchResponse {
+    const q = buildModQuery(filter, semantic, ranked);
     const rows = this.db.prepare(q.sql).all(...q.params) as ModRow[];
     const { total } = this.db.prepare(q.countSql).get(...q.countParams) as { total: number };
     return {

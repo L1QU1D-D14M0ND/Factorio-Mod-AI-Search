@@ -10,6 +10,7 @@ export interface DetailActions {
   select: (name: string) => void;
   filterByTag: (tag: string) => void;
   filterByOwner: (owner: string) => void;
+  findSimilar: (name: string) => void;
 }
 
 const DEP_GROUPS: { title: string; kinds: DependencyKind[]; className: string }[] = [
@@ -124,6 +125,15 @@ function render(el: HTMLElement, mod: ModDetail, actions: DetailActions): void {
           },
           inList ? '✓ In list (remove)' : '+ Add to list',
         ),
+        h(
+          'button',
+          {
+            class: 'btn',
+            title: 'Search for mods with a similar theme, tags and dependencies',
+            onclick: () => actions.findSimilar(mod.name),
+          },
+          'Find similar',
+        ),
         link(mod.portalUrl, 'Mod portal ↗'),
         link(mod.sourceUrl, 'Source ↗'),
         mod.homepage !== mod.sourceUrl ? link(mod.homepage, 'Homepage ↗') : null,
@@ -175,7 +185,21 @@ function render(el: HTMLElement, mod: ModDetail, actions: DetailActions): void {
         mod.featureFlags.length ? h('dt', null, 'Features') : null,
         mod.featureFlags.length ? h('dd', null, mod.featureFlags.join(', ')) : null,
       ),
-      deps.length ? h('section', null, h('h3', null, 'Dependencies'), deps) : null,
+      // Always shown, so "no dependencies" and "unknown" are never confused.
+      h(
+        'section',
+        null,
+        h('h3', null, 'Dependencies'),
+        deps.length
+          ? deps
+          : h(
+              'p',
+              { class: 'muted small' },
+              mod.hasDetails
+                ? 'None besides the base game.'
+                : 'Unknown: full details are not available for this mod.',
+            ),
+      ),
       mod.requiredByCount
         ? h(
             'section',

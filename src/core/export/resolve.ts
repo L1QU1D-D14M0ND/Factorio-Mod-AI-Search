@@ -9,6 +9,8 @@ export interface ExportMod {
   version: string | null;
   factorioVersion: string | null;
   summary: string;
+  /** Relative thumbnail path on the portal's asset server, if any. */
+  thumbnail: string | null;
   official: boolean;
   /** Present in the local DB (or an official DLC). */
   known: boolean;
@@ -31,6 +33,7 @@ interface Row {
   factorio_version: string | null;
   summary: string;
   full_synced_at: string | null;
+  thumbnail: string | null;
 }
 
 /**
@@ -40,7 +43,7 @@ interface Row {
  */
 export function resolveList(db: DB, names: string[], includeDependencies: boolean): ResolvedList {
   const getMod = db.prepare(
-    'SELECT name, title, owner, latest_version, factorio_version, summary, full_synced_at FROM mods WHERE name = ?',
+    'SELECT name, title, owner, latest_version, factorio_version, summary, full_synced_at, thumbnail FROM mods WHERE name = ?',
   );
   const getRequired = db.prepare(
     "SELECT dep_name FROM dependencies WHERE mod_name = ? AND kind = 'required' ORDER BY dep_name",
@@ -69,6 +72,7 @@ export function resolveList(db: DB, names: string[], includeDependencies: boolea
         name,
         title: officialTitle(name),
         owner: 'Wube Software',
+        thumbnail: null,
         version: null,
         factorioVersion: null,
         summary: 'Official expansion content',
@@ -84,6 +88,7 @@ export function resolveList(db: DB, names: string[], includeDependencies: boolea
         name,
         title: row?.title ?? name,
         owner: row?.owner ?? null,
+        thumbnail: row?.thumbnail ?? null,
         version: row?.latest_version ?? null,
         factorioVersion: row?.factorio_version ?? null,
         summary: row?.summary ?? '',

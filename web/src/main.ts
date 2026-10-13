@@ -32,6 +32,8 @@ export interface AppState {
   loading: boolean;
   error: string | null;
   notice: string | null;
+  /** For "Find similar" results: the reference mod. */
+  similarTo: { name: string; title: string } | null;
   selected: string | null;
   panel: 'detail' | 'list';
   lists: ModList[];
@@ -58,6 +60,7 @@ const state: AppState = {
   loading: false,
   error: null,
   notice: null,
+  similarTo: null,
   selected: new URLSearchParams(location.search).get('mod'),
   panel: 'detail',
   lists: [],
@@ -292,6 +295,7 @@ async function search(append = false): Promise<void> {
     state.results = append ? [...state.results, ...res.items] : res.items;
     state.total = res.total;
     state.notice = res.notice ?? null;
+    state.similarTo = res.similarTo ?? null;
   } catch (err) {
     if (seq !== searchSeq) return;
     state.error = (err as Error).message;
@@ -350,6 +354,13 @@ function renderPanel(): void {
       select,
       filterByTag: (tag) => setFilter({ tags: [tag] }),
       filterByOwner: (owner) => setFilter({ owner }),
+      // Keeps the other filters (e.g. Factorio version) so alternatives stay compatible.
+      findSimilar: (name) => {
+        state.ask = null;
+        searchInput.value = '';
+        setFilter({ similarTo: name, q: undefined, semantic: undefined, sort: undefined });
+        document.querySelector('.results')?.scrollTo({ top: 0 });
+      },
     });
   } else {
     renderListPanel(panelBody, state, {
@@ -474,6 +485,7 @@ function renderMain(): void {
     setSort: (sort) => setFilter({ sort, order: undefined }),
     clearFilters: () => setFilter({}, { replace: true }),
     startSync: () => syncBar.start(),
+    clearSimilar: () => setFilter({ similarTo: undefined }),
   });
 }
 

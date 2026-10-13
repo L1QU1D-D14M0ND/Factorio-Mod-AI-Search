@@ -12,7 +12,9 @@ import { ModRepository } from '../core/repo.js';
 import { filterFromSearchParams, ModFilterSchema } from '../shared/filters.js';
 import { explainResults, interpretRequest } from '../core/llm/nl-search.js';
 import { LlmError } from '../core/llm/providers.js';
-import type { AskResponse, ExplainResponse } from '../shared/types.js';
+import type { AskResponse, ExplainResponse, SearchResponse } from '../shared/types.js';
+import type { RankedInput, SemanticInput } from '../core/query.js';
+import { findSimilar } from '../core/related.js';
 import type { DetailsFetcher } from './details.js';
 import type { Services } from './services.js';
 import {
@@ -110,17 +112,45 @@ export function createApp({ db, services, sync, details }: AppDeps): Hono {
   app.get('/api/health', (c) => c.json({ ok: true }));
 
   app.get('/api/mods', async (c) => {
-    const filter = ModFilterSchema.parse(filterFromSearchParams(new URL(c.req.url).searchParams));
-    if (!filter.semantic) return c.json(mods.search(filter));
-    try {
-      const vector = await services.theme.queryVector(filter.semantic);
-      return c.json(mods.search(filter, { vector, k: services.config.embeddings.candidates }));
-    } catch (err) {
-      // Theme search unavailable: fall back to keyword search on the same text.
-      const fallback = { ...filter, semantic: undefined, q: filter.q ?? filter.semantic };
-      const notice = `Theme search unavailable, showing keyword results instead. ${err instanceof Error ? err.message : ''}`;
-      return c.json({ ...mods.search(fallback), notice: notice.trim() });
+    let filter = ModFilterSchema.parse(filterFromSearchParams(new URL(c.req.url).searchParams));
+    const notices: string[] = [];
+    let ranked: RankedInput | undefined;
+    let similarTo: SearchResponse['similarTo'];
+
+    if (filter.similarTo) {
+      const similar = findSimilar(db, filter.similarTo);
+      if (!similar.target) {
+        notices.push(`Unknown mod "${filter.similarTo}".`);
+        filter = { ...filter, similarTo: undefined };
+      } else {
+        ranked = { candidates: similar.candidates };
+        similarTo = { name: similar.target.name, title: similar.target.title };
+        if (!similar.signals.theme) {
+          notices.push(
+            'The theme index is not available, so similarity uses tags and dependencies only.',
+          );
+        }
+      }
     }
+
+    let semantic: SemanticInput | undefined;
+    if (filter.semantic) {
+      try {
+        const vector = await services.theme.queryVector(filter.semantic);
+        semantic = { vector, k: services.config.embeddings.candidates };
+      } catch (err) {
+        // Theme search unavailable: fall back to keyword search on the same text.
+        filter = { ...filter, semantic: undefined, q: filter.q ?? filter.semantic };
+        notices.push(
+          `Theme search unavailable, showing keyword results instead. ${err instanceof Error ? err.message : ''}`.trim(),
+        );
+      }
+    }
+
+    const result: SearchResponse = mods.search(filter, semantic, ranked);
+    if (notices.length) result.notice = notices.join(' ');
+    if (similarTo) result.similarTo = similarTo;
+    return c.json(result);
   });
 
   app.get('/api/mods/:name', async (c) => {
@@ -246,8 +276,17 @@ export function createApp({ db, services, sync, details }: AppDeps): Hono {
       mods: resolved.mods,
       warnings: resolved.warnings,
       portalUrl: config.portal.baseUrl,
+      assetsUrl: config.portal.assetsUrl,
       generatedAt: new Date(),
     });
+    if (format === 'print') {
+      // Shown in a new tab (not downloaded). Mod text is escaped; the CSP also blocks any
+      // script except the page's own inline print button, and images except portal thumbnails.
+      return c.body(file.body, 200, {
+        'Content-Type': file.contentType,
+        'Content-Security-Policy': `default-src 'none'; img-src ${new URL(config.portal.assetsUrl).origin}; style-src 'unsafe-inline'; script-src 'unsafe-inline'`,
+      });
+    }
     return c.body(file.body, 200, {
       'Content-Type': file.contentType,
       'Content-Disposition': `attachment; filename="${file.filename}"`,

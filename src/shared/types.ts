@@ -29,6 +29,8 @@ export interface ModSummary {
 export interface SearchResponse {
   /** Shown to the user, e.g. when theme search fell back to keyword search. */
   notice?: string;
+  /** Set for "Find similar" searches: the mod the results are similar to. */
+  similarTo?: { name: string; title: string };
   total: number;
   page: number;
   pageSize: number;

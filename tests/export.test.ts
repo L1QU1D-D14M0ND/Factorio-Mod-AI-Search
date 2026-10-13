@@ -64,4 +64,20 @@ describe('formats', () => {
     expect(renderExport('mod-list', doc).filename).toBe('mod-list.json');
     expect(renderExport('txt', doc).body).toContain('My Lib (my-lib 1.0.0) [dependency]');
   });
+
+  it('renders an escaped, print-friendly HTML page', () => {
+    const evil = resolveList(db, ['core-mod'], false);
+    evil.mods[0]!.summary = '<script>alert(1)</script>';
+    const page = renderExport('print', {
+      ...doc,
+      ...evil,
+      listName: 'Pack <b>',
+      assetsUrl: 'https://assets-mod.factorio.com',
+    });
+    expect(page.contentType).toContain('text/html');
+    expect(page.body).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(page.body).toContain('<title>Pack &lt;b&gt;</title>');
+    expect(page.body).not.toContain('<script>alert');
+    expect(page.body).toContain('Print / Save as PDF');
+  });
 });

@@ -14,6 +14,30 @@ export interface ResultActions {
   startSync: () => void;
   explain: () => void;
   openSettings: () => void;
+  clearSimilar: () => void;
+}
+
+function similarBanner(state: AppState, actions: ResultActions): HTMLElement | null {
+  if (!state.filter.similarTo) return null;
+  const ref = state.similarTo;
+  return h(
+    'div',
+    { class: 'similar-banner' },
+    h(
+      'span',
+      { class: 'grow' },
+      'Mods similar to ',
+      ref
+        ? h('button', { class: 'link', onclick: () => actions.select(ref.name) }, ref.title)
+        : h('strong', null, state.filter.similarTo),
+      h(
+        'span',
+        { class: 'muted small' },
+        ' · by theme, tags and shared dependencies. Other filters still apply.',
+      ),
+    ),
+    h('button', { class: 'btn small', onclick: actions.clearSimilar }, 'Clear'),
+  );
 }
 
 /** What the AI made of an "Ask AI" request, plus the optional ranking. */
@@ -145,7 +169,12 @@ function card(mod: ModSummary, state: AppState, actions: ResultActions): HTMLEle
         mod.similarity !== undefined
           ? h(
               'span',
-              { class: 'pill match', title: 'How closely this mod matches the theme' },
+              {
+                class: 'pill match',
+                title: state.filter.similarTo
+                  ? 'Similarity: theme, tags and shared dependencies'
+                  : 'How closely this mod matches the theme',
+              },
               `${Math.round(mod.similarity * 100)}% match`,
             )
           : null,
@@ -191,9 +220,11 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
       { class: 'total', 'aria-live': 'polite' },
       state.loading && !state.results.length
         ? 'Searching…'
-        : state.filter.semantic && !state.notice
-          ? `${state.total.toLocaleString()} closest matches`
-          : `${state.total.toLocaleString()} mods`,
+        : state.filter.similarTo
+          ? `${state.total.toLocaleString()} similar mods`
+          : state.filter.semantic && !state.notice
+            ? `${state.total.toLocaleString()} closest matches`
+            : `${state.total.toLocaleString()} mods`,
     ),
     h(
       'label',
@@ -211,6 +242,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
     clear(
       el,
       header,
+      similarBanner(state, actions),
       askBanner(state, actions),
       h('div', { class: 'empty' }, h('h2', null, 'Search failed'), h('p', null, state.error)),
     );
@@ -222,6 +254,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
     clear(
       el,
       header,
+      similarBanner(state, actions),
       askBanner(state, actions),
       emptyDb
         ? h(
@@ -260,6 +293,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
   clear(
     el,
     header,
+    similarBanner(state, actions),
     askBanner(state, actions),
     state.notice ? h('p', { class: 'notice' }, state.notice) : null,
     h(
