@@ -1,0 +1,138 @@
+# Factorio Mod Finder
+
+A local, open-source tool to search the [Factorio mod portal](https://mods.factorio.com) with
+real filters, full-text search, dependency info and exportable mod lists.
+
+- Runs entirely on your machine: a small Node.js server plus a web UI at `http://localhost:3000`.
+- Works **without any AI**. (Optional AI-powered theme and natural-language search are planned;
+  see [Roadmap](#roadmap).)
+- Keeps its own copy of the mod catalogue in a single SQLite file and only contacts the
+  portal when you ask it to refresh.
+
+## Features
+
+- **Search** by name, title, summary and description (SQLite FTS5, ranked by relevance and popularity).
+- **Filters**: Factorio version (any release or latest only), Space Age (required / works
+  without / incompatible), category, tags, author, minimum downloads, updated since, hide deprecated.
+- **Sorting** by relevance, downloads, trending score, last update, creation date or title.
+- **Mod details**: description, tags, license, supported Factorio versions, dependencies grouped as
+  requires / recommended / optional / incompatible, and the most popular mods that require it.
+- **Saved lists** stored in the database, with conflict and missing-mod warnings.
+- **Export** a list to `.txt`, `.md` or Factorio's `mod-list.json`, optionally adding all required
+  dependencies (resolved recursively, DLC included).
+
+## Requirements
+
+- Node.js **22.13 or newer** (22 LTS or 24 LTS)
+- On most systems `better-sqlite3` installs a prebuilt binary. If it has to compile, you need
+  Python 3 and a C++ toolchain (build-essential / Xcode CLT / Visual Studio Build Tools).
+
+## Getting started
+
+```bash
+npm install
+npm run sync     # download the mod catalogue (see below)
+npm start        # build the UI and serve it at http://localhost:3000
+```
+
+You can also start the app first and press **Refresh** in the top bar instead of running
+`npm run sync`.
+
+### How syncing works
+
+1. **Mod list**: one request to `/api/mods?page_size=max` returns every mod on the portal
+   (~24,000) with its summary, category, downloads and latest release. This alone makes every mod
+   searchable by name, title and summary.
+2. **Details**: for mods targeting the chosen game version (by default the **latest** Factorio
+   version, or newer), it fetches `/api/mods/{name}/full` to get descriptions, tags, release
+   history and dependencies. The first run for the latest version is a few thousand requests,
+   about 25 minutes at the default 3 requests/second.
+3. **Incremental refresh**: later syncs download the list again and only fetch details for mods
+   that are new or have a new release. This usually takes a minute or two.
+
+Syncs are **resumable**: the pending queue is stored in the database, so you can press Ctrl+C
+and run `npm run sync` again later. Nothing contacts the portal unless you run a sync or press
+Refresh.
+
+```bash
+npm run sync -- --help                # all options
+npm run sync -- --game-version 1.1    # details for 1.1 mods and newer
+npm run sync -- --all                 # details for every mod (~2+ hours)
+npm run sync -- --resume              # only finish the pending queue
+npm run sync -- --rate 2              # be even gentler with the portal
+```
+
+> The mod portal API is an internal API. This tool is deliberately polite: it caches everything
+> locally, throttles requests, backs off on errors, and identifies itself with a descriptive
+> `User-Agent`. Please keep the default rate limit.
+
+## Configuration
+
+Everything has sensible defaults. To change something, copy `config.example.json` to
+`config.json` or `.env.example` to `.env`. Both are git-ignored. Environment variables override
+`config.json`.
+
+| Setting                    | Env var                   | Default        | Description                                                         |
+| -------------------------- | ------------------------- | -------------- | ------------------------------------------------------------------- |
+| `dbPath`                   | `FMF_DB_PATH`             | `data/mods.db` | SQLite database file                                                |
+| `server.host`              | `FMF_HOST`                | `127.0.0.1`    | Interface to bind (keep it local)                                   |
+| `server.port`              | `FMF_PORT`                | `3000`         | HTTP port                                                           |
+| `portal.requestsPerSecond` | `FMF_REQUESTS_PER_SECOND` | `3`            | Throttle for detail requests                                        |
+| `portal.concurrency`       | `FMF_CONCURRENCY`         | `2`            | Parallel detail requests                                            |
+| `portal.userAgent`         | `FMF_USER_AGENT`          | app name + URL | User-Agent sent to the portal                                       |
+| `sync.gameVersion`         | `FMF_GAME_VERSION`        | `latest`       | Fetch details for mods targeting this version or newer              |
+| `sync.staleDays`           | –                         | `0`            | Also re-fetch details older than N days (catches description edits) |
+
+## Exporting `mod-list.json`
+
+`mod-list.json` is the file Factorio keeps in its `mods` folder to know which mods are enabled.
+The export always lists `base` (the base game) as enabled. DLC (`space-age`, `quality`,
+`elevated-rails`) are treated like any other mod: they are only included if they are in your list
+or required by a mod in it. The file only enables mods; download them in-game (or from the
+portal) as usual.
+
+## Development
+
+```bash
+npm run dev          # API server (watch mode) + Vite dev server at http://localhost:5173
+npm test             # unit tests (Vitest)
+npm run check        # typecheck + lint + format check + tests
+```
+
+Project layout:
+
+```
+src/
+  shared/      types, constants and the zod filter schema (used by server and UI)
+  core/
+    config.ts  config loading (defaults < config.json < env)
+    db/        schema/migrations and connection helpers
+    portal/    mod portal API client (throttling, retries, User-Agent)
+    sync/      incremental, resumable sync
+    deps.ts    Factorio dependency-string parser
+    query.ts   filter object -> parameterized SQL
+    repo.ts    search, details and facets
+    lists.ts   saved mod lists
+    export/    dependency resolution and txt / md / mod-list.json writers
+  server/      Hono HTTP API, also serves the built UI
+  cli/         `npm run sync`
+web/           Vite + vanilla TypeScript UI (only talks to the server over HTTP)
+tests/         Vitest unit tests
+```
+
+The UI never touches the database directly. It uses the HTTP API, which keeps it easy to wrap
+in Tauri or Electron later.
+
+## Roadmap
+
+1. ✅ Crawler + SQLite database (`npm run sync`)
+2. ✅ Web UI + API: search, filters, details, saved lists, export
+3. Semantic "theme" search with local embeddings (sqlite-vec)
+4. Natural-language search through a pluggable LLM (Ollama, LM Studio, llama.cpp, OpenAI-compatible
+   APIs, Anthropic). The LLM only produces a validated filter object; it never reads the database.
+5. Related mods (dependency graph + embeddings + shared tags), PDF export, release packaging
+
+## License
+
+[MIT](LICENSE). Not affiliated with Wube Software. Mod data and thumbnails belong to their
+respective authors and are fetched from the official mod portal.
