@@ -129,11 +129,17 @@ function render(el: HTMLElement, mod: ModDetail, actions: DetailActions): void {
         mod.homepage !== mod.sourceUrl ? link(mod.homepage, 'Homepage ↗') : null,
       ),
       h('p', { class: 'lead' }, mod.summary),
-      !mod.hasDetails
+      mod.detailsError || !mod.hasDetails
         ? h(
             'p',
             { class: 'hint' },
-            'Full details (description, tags, dependencies) have not been synced for this mod. They are fetched for mods targeting the synced game version; run "npm run sync -- --all" to fetch everything.',
+            mod.detailsError ?? 'Full details are not available for this mod.',
+            ' ',
+            h(
+              'a',
+              { href: mod.portalUrl, target: '_blank', rel: 'noopener noreferrer' },
+              'View it on the mod portal ↗',
+            ),
           )
         : null,
       mod.tags.length
@@ -226,7 +232,7 @@ export async function renderDetail(
   clear(el, h('p', { class: 'muted pad' }, 'Loading…'));
   try {
     const mod = await api.mod(name);
-    cache.set(name, mod);
+    if (!mod.detailsError) cache.set(name, mod);
     if (current === name) {
       render(el, mod, actions);
       el.scrollTop = 0;

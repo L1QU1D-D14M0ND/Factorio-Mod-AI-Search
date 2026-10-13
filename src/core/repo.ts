@@ -4,7 +4,7 @@ import type { ModFilter } from '../shared/filters.js';
 import type { FacetsResponse, ModDetail, ModSummary, SearchResponse } from '../shared/types.js';
 import type { DB } from './db/connection.js';
 import { compareVersions } from './deps.js';
-import { buildModQuery } from './query.js';
+import { buildModQuery, type SemanticInput } from './query.js';
 
 export interface RepoOptions {
   assetsUrl: string;
@@ -30,6 +30,7 @@ interface ModRow {
   has_details: number;
   removed_at: string | null;
   tags: string | null;
+  similarity?: number | null;
 }
 
 export class ModRepository {
@@ -62,11 +63,12 @@ export class ModRepository {
       tags: row.tags ? row.tags.split(',') : [],
       hasDetails: !!row.has_details,
       removed: !!row.removed_at,
+      ...(row.similarity != null ? { similarity: Math.max(0, Math.min(1, row.similarity)) } : {}),
     };
   }
 
-  search(filter: ModFilter): SearchResponse {
-    const q = buildModQuery(filter);
+  search(filter: ModFilter, semantic?: SemanticInput): SearchResponse {
+    const q = buildModQuery(filter, semantic);
     const rows = this.db.prepare(q.sql).all(...q.params) as ModRow[];
     const { total } = this.db.prepare(q.countSql).get(...q.countParams) as { total: number };
     return {

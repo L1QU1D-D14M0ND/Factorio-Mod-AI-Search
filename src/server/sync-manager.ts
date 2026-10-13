@@ -1,13 +1,16 @@
 import type { Config } from '../core/config.js';
 import type { DB } from '../core/db/connection.js';
 import { getState } from '../core/db/connection.js';
-import { PortalClient } from '../core/portal/client.js';
+import type { ThemeSearch } from '../core/embeddings/service.js';
+import type { PortalClient } from '../core/portal/client.js';
 import { runSync, type SyncProgress } from '../core/sync/sync.js';
 import type { SyncStatus } from '../shared/types.js';
 
+type ProgressState = Omit<SyncProgress, 'phase'> & { phase: SyncProgress['phase'] | 'embeddings' };
+
 /** Runs at most one background sync inside the server process ("Refresh" button). */
 export class SyncManager {
-  private progress: SyncProgress | null = null;
+  private progress: ProgressState | null = null;
   private running: Promise<unknown> | null = null;
   private controller: AbortController | null = null;
   private error: string | null = null;
@@ -15,19 +18,16 @@ export class SyncManager {
   constructor(
     private readonly db: DB,
     private readonly config: Config,
+    private readonly client: PortalClient,
+    private readonly theme: ThemeSearch,
   ) {}
 
   start(opts: { gameVersion?: string } = {}): boolean {
     if (this.running) return false;
     this.error = null;
-    this.controller = new AbortController();
-    this.running = runSync(this.db, new PortalClient(this.config.portal), {
-      gameVersion: opts.gameVersion ?? this.config.sync.gameVersion,
-      staleDays: this.config.sync.staleDays,
-      concurrency: this.config.portal.concurrency,
-      signal: this.controller.signal,
-      onProgress: (p) => (this.progress = p),
-    })
+    const controller = new AbortController();
+    this.controller = controller;
+    this.running = this.run(opts.gameVersion, controller.signal)
       .catch((err: unknown) => {
         this.error = err instanceof Error ? err.message : String(err);
       })
@@ -36,6 +36,40 @@ export class SyncManager {
         this.controller = null;
       });
     return true;
+  }
+
+  private async run(gameVersion: string | undefined, signal: AbortSignal): Promise<void> {
+    const result = await runSync(this.db, this.client, {
+      gameVersion: gameVersion ?? this.config.sync.gameVersion,
+      staleDays: this.config.sync.staleDays,
+      concurrency: this.config.portal.concurrency,
+      signal,
+      onProgress: (p) => (this.progress = p),
+    });
+    if (result.phase !== 'done' || !this.config.sync.embed || !this.theme.provider) return;
+
+    const progress: ProgressState = {
+      ...result,
+      phase: 'embeddings',
+      message: 'Updating theme index…',
+    };
+    this.progress = progress;
+    try {
+      await this.theme.update({
+        signal,
+        onProgress: (p) => {
+          progress.queued = p.total;
+          progress.done = p.done;
+          progress.message = `Updating theme index ${p.done}/${p.total}`;
+        },
+      });
+      progress.phase = 'done';
+      progress.message = result.message;
+    } catch (err) {
+      // The catalogue refresh succeeded; only theme search is affected.
+      progress.phase = 'done';
+      this.error = `Theme index not updated: ${err instanceof Error ? err.message : String(err)}`;
+    }
   }
 
   stop(): void {

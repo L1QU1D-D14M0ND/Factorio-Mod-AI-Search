@@ -10,6 +10,8 @@ import { resolveList } from '../core/export/resolve.js';
 import { ListNotFoundError, ListRepository } from '../core/lists.js';
 import { ModRepository } from '../core/repo.js';
 import { filterFromSearchParams, ModFilterSchema } from '../shared/filters.js';
+import type { ThemeSearch } from '../core/embeddings/service.js';
+import type { DetailsFetcher } from './details.js';
 import type { SyncManager } from './sync-manager.js';
 
 const WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url));
@@ -30,9 +32,11 @@ export interface AppDeps {
   db: DB;
   config: Config;
   sync: SyncManager;
+  theme: ThemeSearch;
+  details: DetailsFetcher;
 }
 
-export function createApp({ db, config, sync }: AppDeps): Hono {
+export function createApp({ db, config, sync, theme, details }: AppDeps): Hono {
   const app = new Hono();
   const mods = new ModRepository(db, {
     assetsUrl: config.portal.assetsUrl,
@@ -71,15 +75,29 @@ export function createApp({ db, config, sync }: AppDeps): Hono {
 
   app.get('/api/health', (c) => c.json({ ok: true }));
 
-  app.get('/api/mods', (c) => {
+  app.get('/api/mods', async (c) => {
     const filter = ModFilterSchema.parse(filterFromSearchParams(new URL(c.req.url).searchParams));
-    return c.json(mods.search(filter));
+    if (!filter.semantic) return c.json(mods.search(filter));
+    try {
+      const vector = await theme.queryVector(filter.semantic);
+      return c.json(mods.search(filter, { vector, k: config.embeddings.candidates }));
+    } catch (err) {
+      // Theme search unavailable: fall back to keyword search on the same text.
+      const fallback = { ...filter, semantic: undefined, q: filter.q ?? filter.semantic };
+      const notice = `Theme search unavailable, showing keyword results instead. ${err instanceof Error ? err.message : ''}`;
+      return c.json({ ...mods.search(fallback), notice: notice.trim() });
+    }
   });
 
-  app.get('/api/mods/:name', (c) => {
-    const mod = mods.getMod(c.req.param('name'));
-    return mod ? c.json(mod) : c.json({ error: 'Mod not found' }, 404);
+  app.get('/api/mods/:name', async (c) => {
+    const name = c.req.param('name');
+    const detailsError = await details.ensure(name);
+    const mod = mods.getMod(name);
+    if (!mod) return c.json({ error: 'Mod not found' }, 404);
+    return c.json(detailsError ? { ...mod, detailsError } : mod);
   });
+
+  app.get('/api/theme', (c) => c.json(theme.status()));
 
   app.get('/api/facets', (c) => c.json(mods.facets()));
 

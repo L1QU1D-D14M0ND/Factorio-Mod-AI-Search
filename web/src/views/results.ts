@@ -63,6 +63,13 @@ function card(mod: ModSummary, state: AppState, actions: ResultActions): HTMLEle
       h(
         'div',
         { class: 'meta' },
+        mod.similarity !== undefined
+          ? h(
+              'span',
+              { class: 'pill match', title: 'How closely this mod matches the theme' },
+              `${Math.round(mod.similarity * 100)}% match`,
+            )
+          : null,
         h(
           'span',
           { title: `${mod.downloadsCount.toLocaleString()} downloads` },
@@ -105,7 +112,9 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
       { class: 'total', 'aria-live': 'polite' },
       state.loading && !state.results.length
         ? 'Searching…'
-        : `${state.total.toLocaleString()} mods`,
+        : state.filter.semantic && !state.notice
+          ? `${state.total.toLocaleString()} closest matches`
+          : `${state.total.toLocaleString()} mods`,
     ),
     h(
       'label',
@@ -170,6 +179,7 @@ export function renderResults(el: HTMLElement, state: AppState, actions: ResultA
   clear(
     el,
     header,
+    state.notice ? h('p', { class: 'notice' }, state.notice) : null,
     h(
       'div',
       { class: `cards${state.loading ? ' loading' : ''}` },

@@ -24,6 +24,7 @@ export interface AppState {
   total: number;
   loading: boolean;
   error: string | null;
+  notice: string | null;
   selected: string | null;
   panel: 'detail' | 'list';
   lists: ModList[];
@@ -37,6 +38,7 @@ const state: AppState = {
   total: 0,
   loading: false,
   error: null,
+  notice: null,
   selected: new URLSearchParams(location.search).get('mod'),
   panel: 'detail',
   lists: [],
@@ -64,13 +66,53 @@ const panelEl = h(
   ),
   panelBody,
 );
+// Two search modes share one input: keywords (FTS, `q`) and theme (embeddings, `semantic`).
+type SearchMode = 'keywords' | 'theme';
+let mode: SearchMode = state.filter.semantic ? 'theme' : 'keywords';
+const PLACEHOLDERS: Record<SearchMode, string> = {
+  keywords: 'Search mods by name, title or description…',
+  theme: 'Describe what you want, e.g. “harder biters” or “compact trains”…',
+};
 const searchInput = h('input', {
   type: 'search',
   class: 'search',
-  placeholder: 'Search mods by name, title or description…',
-  value: state.filter.q ?? '',
+  placeholder: PLACEHOLDERS[mode],
+  value: (mode === 'theme' ? state.filter.semantic : state.filter.q) ?? '',
   'aria-label': 'Search mods',
 });
+const modeButtons = (['keywords', 'theme'] as const).map((m) =>
+  h(
+    'button',
+    {
+      class: 'seg',
+      'aria-pressed': String(m === mode),
+      title:
+        m === 'theme'
+          ? 'Find mods by meaning, not exact words'
+          : 'Match words in names and descriptions',
+      onclick: () => setMode(m),
+    },
+    m === 'theme' ? 'Theme' : 'Keywords',
+  ),
+);
+const searchBox = h(
+  'div',
+  { class: 'search-box' },
+  h('div', { class: 'segmented', role: 'group', 'aria-label': 'Search mode' }, modeButtons),
+  searchInput,
+);
+
+function setMode(next: SearchMode): void {
+  if (next === mode) return;
+  mode = next;
+  modeButtons.forEach((b, i) =>
+    b.setAttribute('aria-pressed', String(['keywords', 'theme'][i] === mode)),
+  );
+  searchInput.placeholder = PLACEHOLDERS[mode];
+  const text = searchInput.value.trim() || undefined;
+  setFilter(mode === 'theme' ? { semantic: text, q: undefined } : { q: text, semantic: undefined });
+  searchInput.focus();
+}
 const syncBar = new SyncBar(api, () => void refreshAfterSync());
 const filterToggle = h(
   'button',
@@ -92,7 +134,7 @@ root.append(
       h('span', null, 'Factorio Mod Finder'),
     ),
     filterToggle,
-    searchInput,
+    searchBox,
     syncBar.el,
   ),
   h('div', { class: 'layout' }, filtersEl, resultsEl, panelEl),
@@ -101,7 +143,11 @@ root.append(
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 searchInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => setFilter({ q: searchInput.value.trim() || undefined }), 250);
+  const text = searchInput.value.trim() || undefined;
+  searchTimer = setTimeout(
+    () => setFilter(mode === 'theme' ? { semantic: text } : { q: text }),
+    mode === 'theme' ? 400 : 250,
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -114,7 +160,14 @@ function setFilter(patch: Partial<ModFilterInput>, opts: { replace?: boolean } =
   for (const key of Object.keys(state.filter) as (keyof ModFilterInput)[]) {
     if (state.filter[key] === undefined) delete state.filter[key];
   }
-  if (opts.replace) searchInput.value = state.filter.q ?? '';
+  if (opts.replace) {
+    mode = state.filter.semantic ? 'theme' : 'keywords';
+    modeButtons.forEach((b, i) =>
+      b.setAttribute('aria-pressed', String(['keywords', 'theme'][i] === mode)),
+    );
+    searchInput.placeholder = PLACEHOLDERS[mode];
+    searchInput.value = (mode === 'theme' ? state.filter.semantic : state.filter.q) ?? '';
+  }
   syncUrl();
   void search();
   renderSidebar();
@@ -131,6 +184,7 @@ async function search(append = false): Promise<void> {
     if (seq !== searchSeq) return;
     state.results = append ? [...state.results, ...res.items] : res.items;
     state.total = res.total;
+    state.notice = res.notice ?? null;
   } catch (err) {
     if (seq !== searchSeq) return;
     state.error = (err as Error).message;

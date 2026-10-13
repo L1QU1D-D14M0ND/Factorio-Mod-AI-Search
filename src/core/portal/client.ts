@@ -57,11 +57,19 @@ export class PortalClient {
     );
   }
 
-  getFullMod(name: string): Promise<PortalFullMod> {
-    return this.getJson<PortalFullMod>(`/api/mods/${encodeURIComponent(name)}/full`);
+  /** `interactive`: a user is waiting, so fail fast (one retry, short timeout). */
+  getFullMod(name: string, opts: { interactive?: boolean } = {}): Promise<PortalFullMod> {
+    const path = `/api/mods/${encodeURIComponent(name)}/full`;
+    return opts.interactive
+      ? this.getJson<PortalFullMod>(path, Math.min(this.config.timeoutMs, 10_000), 1)
+      : this.getJson<PortalFullMod>(path);
   }
 
-  private async getJson<T>(path: string, timeoutMs = this.config.timeoutMs): Promise<T> {
+  private async getJson<T>(
+    path: string,
+    timeoutMs = this.config.timeoutMs,
+    maxRetries = this.config.maxRetries,
+  ): Promise<T> {
     const url = this.config.baseUrl + path;
     for (let attempt = 0; ; attempt++) {
       await this.limiter.acquire();
@@ -80,7 +88,7 @@ export class PortalClient {
         const retryable =
           !(err instanceof NotFoundError) &&
           (!(err instanceof HttpError) || err.status === 429 || err.status >= 500);
-        if (!retryable || attempt >= this.config.maxRetries) throw err;
+        if (!retryable || attempt >= maxRetries) throw err;
       }
       // Exponential backoff with jitter; also delays every other queued request.
       this.limiter.pause(

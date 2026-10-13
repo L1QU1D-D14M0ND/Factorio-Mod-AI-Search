@@ -14,6 +14,7 @@
   --space: #8fa8ff;
   --radius: 8px;
   --shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  --topbar: 56px;
   color-scheme: dark;
 }
 
@@ -107,7 +108,7 @@ code {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 56px;
+  height: var(--topbar);
   padding: 0 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -126,7 +127,6 @@ code {
 .search {
   flex: 1;
   min-width: 0;
-  max-width: 640px;
   height: 36px;
   padding: 0 12px;
   background: var(--bg);
@@ -241,7 +241,7 @@ button:focus-visible {
 .layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  height: calc(100vh - 56px);
+  height: calc(100vh - var(--topbar));
 }
 body.show-panel .layout {
   grid-template-columns: 260px minmax(0, 1fr) minmax(360px, 440px);
@@ -481,6 +481,49 @@ body.show-panel .panel {
 }
 .pill.cat {
   color: var(--muted);
+}
+.pill.match {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: rgba(232, 176, 75, 0.12);
+  border-radius: var(--radius);
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.search-box {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  max-width: 720px;
+  gap: 8px;
+}
+.segmented {
+  display: flex;
+  flex: none;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.seg {
+  padding: 0 10px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.seg[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
 }
 
 .add {
@@ -751,7 +794,7 @@ ul.plain li {
   }
   .panel {
     position: fixed;
-    top: 56px;
+    top: var(--topbar);
     right: 0;
     bottom: 0;
     z-index: 30;
@@ -761,6 +804,19 @@ ul.plain li {
 }
 
 @media (max-width: 760px) {
+  :root {
+    --topbar: 100px;
+  }
+  .topbar {
+    flex-wrap: wrap;
+    align-content: center;
+    gap: 8px 12px;
+  }
+  .search-box {
+    order: 1;
+    flex-basis: 100%;
+    max-width: none;
+  }
   .layout,
   body.show-panel .layout {
     grid-template-columns: minmax(0, 1fr);
@@ -777,7 +833,7 @@ ul.plain li {
   body.show-filters .sidebar {
     display: block;
     position: fixed;
-    top: 56px;
+    top: var(--topbar);
     left: 0;
     bottom: 0;
     z-index: 30;

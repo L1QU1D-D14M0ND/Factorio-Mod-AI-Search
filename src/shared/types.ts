@@ -21,9 +21,13 @@ export interface ModSummary {
   /** False until /full details were synced (no description, tags or dependencies yet). */
   hasDetails: boolean;
   removed: boolean;
+  /** Theme-search similarity (0..1), only present for theme searches. */
+  similarity?: number;
 }
 
 export interface SearchResponse {
+  /** Shown to the user, e.g. when theme search fell back to keyword search. */
+  notice?: string;
   total: number;
   page: number;
   pageSize: number;
@@ -54,6 +58,17 @@ export interface ModDetail extends ModSummary {
   /** Most-downloaded mods that hard-require this one. */
   requiredBy: { name: string; title: string; downloadsCount: number }[];
   requiredByCount: number;
+  /** Set when full details were needed but could not be fetched from the portal. */
+  detailsError?: string;
+}
+
+export interface ThemeStatus {
+  enabled: boolean;
+  provider: string | null;
+  ready: boolean;
+  indexed: number;
+  mods: number;
+  reason: string | null;
 }
 
 export interface FacetCount {
